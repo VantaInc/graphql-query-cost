@@ -109,25 +109,17 @@ queryCost(gqlSchema, {
 
 ## Events emitted
 
-The cost calculator emits events when it takes an action.
+The cost calculator invokes callbacks when it takes an action.
 
 ```
-type Events = {
-  cache_hit: () => void,
-  cache_miss: () => void,
-  cost_calculated: (cost: number, document: DocumentNode, durationMs: number) => void,
-  error: (e: Error) => void,
-  blocked_request: () => void,
-}
+onCacheHit: () => void,
+onCacheMiss: () => void,
+onCostCalculated: (cost: number, document: DocumentNode, durationMs: number) => void,
+onError: (e: Error) => void,
+onRequestBlocked: (cost: number, document: DocumentNode) => void,
 ```
 
-In order to use these events, you can set up listeners.
-
-```
-import { emitter } from "graphql-query-cost";
-emitter.on("cost_calculated", (cost: number) => console.log("Query cost", { cost }))
-```
-
+Pass these in as arguments.
 
 ## Development
 
