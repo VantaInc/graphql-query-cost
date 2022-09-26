@@ -1,7 +1,7 @@
 {
   "name": "graphql-query-cost",
-  "version": "1.0.0",
-  "description": "",
+  "version": "1.0.1",
+  "description": "GraphQL query cost calculator with relay style pagination support.",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "scripts": {
