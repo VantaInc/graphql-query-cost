@@ -2,8 +2,6 @@ import crypto from "crypto";
 
 import type { GraphQLRequest } from "apollo-server-core";
 import type { ApolloServerPlugin } from "apollo-server-plugin-base";
-import EventEmitter from "events";
-import TypedEmitter from "typed-emitter";
 
 import type { VariableValues } from "apollo-server-types";
 
@@ -30,7 +28,7 @@ import {
 } from "graphql";
 
 import { getVariableValues } from "graphql/execution/values";
-import { pick } from "lodash";
+import { pick, noop } from "lodash";
 
 export type Maybe<T> = T | null | undefined;
 
@@ -396,22 +394,14 @@ export function cacheKey(req: string, variables: VariableValues) {
   );
 }
 
-// the various different events that will be emitted by the cost calculator.
-type Events = {
-  cache_hit: () => void,
-  cache_miss: () => void,
-  cost_calculated: (cost: number, document: DocumentNode, durationMs: number) => void,
-  error: (e: Error) => void,
-  blocked_request: (cost: number, document: DocumentNode) => void,
-}
-
-export const emitter = new EventEmitter() as TypedEmitter<Events>;
-
 function getCost(
   schema: GraphQLSchema,
   document: DocumentNode,
   request: GraphQLRequest,
   directiveCostConfig: Maybe<Map<string, number>>,
+  onCacheHit: () => void,
+  onCacheMiss: () => void,
+  onCostCalculated: (cost: number, document: DocumentNode, durationMs: number) => void,
   cachedCosts: LruMap<string, number>,
 ): number {
   const req = document?.loc?.source.body;
@@ -421,15 +411,15 @@ function getCost(
   const key = cacheKey(req, request.variables ?? {});
   const cachedCost = cachedCosts.get(key);
   if (isSome(cachedCost)) {
-    emitter.emit("cache_hit")
+    onCacheHit();
     return cachedCost;
   }
-  emitter.emit("cache_miss")
+  onCacheMiss();
   const start = Date.now();
   const cost = documentCost(schema, directiveCostConfig, document, request.variables);
   const durationMs = Date.now() - start;
   cachedCosts.set(key, cost);
-  emitter.emit("cost_calculated", cost, document, durationMs)
+  onCostCalculated(cost, document, durationMs);
   return cost;
 }
 
@@ -441,12 +431,22 @@ export default function queryCost(
     blockOnHighQueryCost,
     queryCacheSize,
     directiveCostConfig,
+    onCacheHit = noop,
+    onCacheMiss = noop,
+    onCostCalculated = noop,
+    onError = noop,
+    onRequestBlocked = noop
   }: {
     costThreshold: number;
     sampleRate: number;
     blockOnHighQueryCost: boolean;
     queryCacheSize: number;
     directiveCostConfig?: Maybe<Map<string, number>>;
+    onCacheHit?: () => void,
+    onCacheMiss?: () => void,
+    onCostCalculated?: (cost: number, document: DocumentNode, durationMs: number) => void,
+    onError?: (e: Error) => void,
+    onRequestBlocked?: (cost: number, document: DocumentNode) => void,
   }
 ): ApolloServerPlugin {
   if (sampleRate < 0 || sampleRate > 1) {
@@ -467,13 +467,22 @@ export default function queryCost(
           }
           let cost: Maybe<number> = 0;
           try {
-            cost = getCost(schema, document, request, directiveCostConfig, cachedCosts);
+            cost = getCost(
+              schema,
+              document,
+              request,
+              directiveCostConfig,
+              onCacheHit,
+              onCacheMiss,
+              onCostCalculated,
+              cachedCosts
+            );
           } catch (e) {
-            emitter.emit("error", e as Error);
+            onError(e as Error);
             return;
           }
           if (blockOnHighQueryCost && cost > costThreshold) {
-            emitter.emit("blocked_request", cost, document)
+            onRequestBlocked(cost, document);
             throw new QueryCostTooHighError(cost, costThreshold);
           }
         },
